@@ -33,7 +33,7 @@ import {
 } from '../shared/paths.js';
 import { spawnCreature } from '../shared/spawn.js';
 import { Event } from '../shared/types.js';
-import { authenticateCreatureRequest, deriveCreatureToken, revokeCreatureToken } from './creature-auth.js';
+import { authenticateCreatureRequest, deriveCreatureToken } from './creature-auth.js';
 import {
   getSpendingCap,
   loadGlobalConfig,
@@ -46,6 +46,9 @@ import {
   initPricing,
   lookupPricing,
 } from './costs.js';
+
+/** Valid creature control actions. */
+const CONTROL_ACTIONS = new Set(["start", "stop", "restart", "rebuild", "wake", "message"]);
 import { EventStore } from './events.js';
 import {
   activateInstallation,
@@ -359,7 +362,6 @@ export class Orchestrator {
     if (!supervisor) throw new Error(`creature "${name}" is not running`);
     await supervisor.stop();
     this.supervisors.delete(name);
-    revokeCreatureToken(name);
     this.stores.delete(name);
   }
 
@@ -1083,7 +1085,6 @@ export class Orchestrator {
 
 
         // Auth gate — control actions require valid creature token (or localhost/dashboard)
-        const CONTROL_ACTIONS = new Set(["start", "stop", "restart", "rebuild", "wake", "message"]);
         if (CONTROL_ACTIONS.has(action) && req.method === "POST") {
           const auth = authenticateCreatureRequest(req, name);
           if (!auth.ok) {
