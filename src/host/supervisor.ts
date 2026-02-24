@@ -7,7 +7,7 @@ import fsSync from 'node:fs';
 import net from 'node:net';
 import path from 'node:path';
 
-import { deriveCreatureToken, revokeCreatureToken } from './creature-auth.js';
+import { deriveCreatureToken, evictCreatureTokenCache } from './creature-auth.js';
 import { Event } from '../shared/types.js';
 import {
   getCurrentSHA,
@@ -103,7 +103,7 @@ export class CreatureSupervisor {
     this.clearTimers();
     try { execSync(`docker stop ${this.containerName()}`, { stdio: 'ignore', timeout: 15_000 }); } catch {}
     this.status = 'stopped';
-    revokeCreatureToken(this.name);
+    evictCreatureTokenCache(this.name);
     this.sleepReason = 'user';
     this.creature = null;
   }
