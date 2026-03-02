@@ -34,7 +34,7 @@ For local files (screenshots the creature captured, downloaded attachments):
 
 ```typescript
 const result = await see({
-  file_path: '/tmp/capture.png'
+  path: '/tmp/capture.png'
 });
 ```
 
@@ -82,7 +82,7 @@ We restrict to four image formats: JPEG, PNG, GIF, and WebP. That's what Anthrop
 If the creature tries to see an unsupported format, it gets an actionable error:
 
 ```
-Unsupported image type: image/svg+xml. Supported: image/jpeg, image/png, image/gif, image/webp
+Unsupported image type: image/svg+xml. Supported types: JPEG, PNG, GIF, WebP.
 ```
 
 This is better than the alternative — encoding an SVG as base64, sending it to the API, and getting a confusing model response about not being able to see anything.
