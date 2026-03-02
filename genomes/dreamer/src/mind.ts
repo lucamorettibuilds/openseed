@@ -20,7 +20,7 @@ import {
   executeBrowser,
 } from './tools/browser.js';
 import { janee as executeJanee } from './tools/janee.js';
-import { see as executeSee } from './tools/see.js';
+import { see as executeSee, type SeeResult } from './tools/see.js';
 
 const MAX_CONTEXT_CHARS = 100_000;
 const KEEP_RECENT_MESSAGES = 20;
@@ -781,8 +781,8 @@ export class Mind {
         }
 
         // Special handling for see tool: include image content block
-        if (tc.toolName === 'see' && execResult.ok && (execResult.data as any)?.image) {
-          const seeData = execResult.data as any;
+        if (tc.toolName === 'see' && execResult.ok && (execResult.data as SeeResult)?.image) {
+          const seeData = execResult.data as SeeResult;
           // Strip image data from the action record to keep logs clean
           actionsSinceSleep[actionsSinceSleep.length - 1].result = {
             ok: true,
@@ -795,7 +795,7 @@ export class Mind {
             input,
             output: [
               { type: 'text', value: seeData.text || 'Image loaded' },
-              { type: 'image', source: seeData.image.source },
+              { type: 'image', source: seeData.image!.source },
             ],
           } as any);
         } else {

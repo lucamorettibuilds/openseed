@@ -17,30 +17,34 @@ export interface SeeResult {
   error?: string;
 }
 
-const MIME_TYPES: Record<string, string> = {
+/** Media types supported by Anthropic's vision API */
+const SUPPORTED_MEDIA_TYPES = new Set([
+  'image/jpeg',
+  'image/png',
+  'image/gif',
+  'image/webp',
+]);
+
+const EXT_TO_MIME: Record<string, string> = {
   '.png': 'image/png',
   '.jpg': 'image/jpeg',
   '.jpeg': 'image/jpeg',
   '.gif': 'image/gif',
   '.webp': 'image/webp',
-  '.svg': 'image/svg+xml',
-  '.bmp': 'image/bmp',
-  '.ico': 'image/x-icon',
-  '.tiff': 'image/tiff',
-  '.tif': 'image/tiff',
 };
 
 // Max image size: 5MB before base64 encoding (Anthropic limit is ~5MB for base64)
 const MAX_IMAGE_BYTES = 5 * 1024 * 1024;
 
-function guessMimeType(urlOrPath: string, contentType?: string): string {
+function guessMimeType(urlOrPath: string, contentType?: string): string | null {
   if (contentType) {
     // Strip charset/params: "image/png; charset=..." -> "image/png"
     const mime = contentType.split(';')[0].trim().toLowerCase();
-    if (mime.startsWith('image/')) return mime;
+    if (SUPPORTED_MEDIA_TYPES.has(mime)) return mime;
+    if (mime.startsWith('image/')) return null; // unsupported image type
   }
   const ext = extname(urlOrPath).toLowerCase().split('?')[0];
-  return MIME_TYPES[ext] || 'image/png'; // default to png
+  return EXT_TO_MIME[ext] || null;
 }
 
 /**
@@ -77,6 +81,14 @@ async function fetchImage(url: string): Promise<SeeResult> {
     }
 
     const mediaType = guessMimeType(url, contentType);
+    if (!mediaType) {
+      const detectedType = contentType.split(';')[0].trim() || extname(url).toLowerCase();
+      return {
+        ok: false,
+        error: `Unsupported image type: ${detectedType}. Supported types: JPEG, PNG, GIF, WebP.`,
+      };
+    }
+
     const data = buffer.toString('base64');
 
     return {
@@ -114,6 +126,14 @@ async function readLocalImage(filePath: string): Promise<SeeResult> {
     }
 
     const mediaType = guessMimeType(filePath);
+    if (!mediaType) {
+      const ext = extname(filePath).toLowerCase();
+      return {
+        ok: false,
+        error: `Unsupported image type: ${ext || 'unknown'}. Supported types: JPEG, PNG, GIF, WebP.`,
+      };
+    }
+
     const data = buffer.toString('base64');
 
     return {
