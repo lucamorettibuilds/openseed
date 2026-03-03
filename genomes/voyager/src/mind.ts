@@ -585,13 +585,19 @@ ${this.currentTask.attempts > 1 ? `**Prior attempts:** ${this.currentTask.attemp
           // Special handling for see tool: include image content block
           if (tc.toolName === 'see' && execResult.ok && (execResult.data as SeeResult)?.image) {
             const seeData = execResult.data as SeeResult;
+            // Preserve cycle budget warning even when returning image blocks
+            const textParts = [seeData.text || 'Image loaded'];
+            if (toolOutput !== resultContent) {
+              // toolOutput has appended system messages (e.g. cycle warning)
+              textParts.push(toolOutput.slice(resultContent.length));
+            }
             toolResults.push({
               type: "tool-result",
               toolCallId: tc.toolCallId,
               toolName: tc.toolName,
               input,
               output: [
-                { type: 'text', value: seeData.text || 'Image loaded' },
+                { type: 'text', value: textParts.join('\n') },
                 { type: 'image', source: seeData.image!.source },
               ],
             } as any);
