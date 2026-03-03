@@ -1,8 +1,8 @@
-import fs from 'node:fs/promises';
-import path from 'node:path';
+import fs from "node:fs/promises";
+import path from "node:path";
 
-import { Event } from '../shared/types.js';
-import { stripImageData } from '../shared/image-utils.js';
+import { Event } from "../shared/types.js";
+import { stripImageData } from "../shared/image-utils.js";
 
 export class EventStore {
   private eventsFile: string;
@@ -43,9 +43,41 @@ export class EventStore {
       .map((line) => JSON.parse(line));
   }
 
+  /**
+   * Read the last N events from the log without loading the entire file.
+   *
+   * Reads 64KB chunks backwards from the end of the file, collecting
+   * complete JSON lines until we have enough. For small files this is
+   * equivalent to readAll().slice(-n); for large files it avoids loading
+   * potentially hundreds of MB into memory.
+   */
   async readRecent(n: number): Promise<Event[]> {
-    const all = await this.readAll();
-    return all.slice(-n);
+    const fd = await fs.open(this.eventsFile, "r");
+    try {
+      const { size } = await fd.stat();
+      if (size === 0) return [];
+
+      const CHUNK = 64 * 1024; // 64KB
+      let offset = size;
+      const lines: string[] = [];
+      let remainder = "";
+
+      while (offset > 0 && lines.length < n) {
+        const chunkSize = Math.min(CHUNK, offset);
+        offset -= chunkSize;
+        const buf = Buffer.alloc(chunkSize);
+        await fd.read(buf, 0, chunkSize, offset);
+        const chunk = buf.toString("utf-8") + remainder;
+        const parts = chunk.split("\n");
+        remainder = parts.shift()!;
+        lines.unshift(...parts.filter((l) => l.trim()));
+      }
+      if (remainder.trim()) lines.unshift(remainder);
+
+      return lines.slice(-n).map((l) => JSON.parse(l));
+    } finally {
+      await fd.close();
+    }
   }
 
   subscribe(fn: (event: Event) => void) {
