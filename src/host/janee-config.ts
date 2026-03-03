@@ -115,9 +115,6 @@ export function readJaneeConfig(): JaneeConfigView {
 
 // ── Mutations (all return fresh masked view) ──
 
-function loadYAMLConfig(): JaneeYAMLConfig {
-  return loadYAMLConfig();
-}
 
 export function addService(name: string, baseUrl: string, auth: AuthConfig): JaneeConfigView {
   addServiceYAML(name, baseUrl, auth);
