@@ -14,7 +14,8 @@ import {
   resetToSHA,
   setLastGoodSHA,
 } from './git.js';
-import { BOARD_DIR } from '../shared/paths.js';
+import { BOARD_DIR, MAIL_DIR } from '../shared/paths.js';
+import { ensureMailbox } from '../shared/mail.js';
 
 const HEALTH_GATE_MS = 10_000;
 const ROLLBACK_TIMEOUT_MS = 60_000;
@@ -249,6 +250,12 @@ export class CreatureSupervisor {
       console.warn(`[${name}] WARNING: board dir path substitution did not change the path — bind mount may fail`);
     }
 
+    const mailbox = path.join(MAIL_DIR, name);
+    await ensureMailbox(MAIL_DIR, name);
+    const hostMailbox = IS_DOCKER
+      ? mailbox.replace(process.env.OPENSEED_HOME || process.env.ITSALIVE_HOME || '/data', HOST_PATH)
+      : mailbox;
+
     const orchestratorUrl = IS_DOCKER
       ? `http://openseed:${orchestratorPort}`
       : `http://host.docker.internal:${orchestratorPort}`;
@@ -262,6 +269,7 @@ export class CreatureSupervisor {
       '-v', `${hostDir}:/creature`,
       '-v', `${cname}-node-modules:/creature/node_modules`,
       '-v', `${hostBoardDir}:/board`,
+      '-v', `${hostMailbox}:/mail`,
       '-e', `ANTHROPIC_API_KEY=creature:${name}`,
       '-e', `ANTHROPIC_BASE_URL=${orchestratorUrl}`,
       '-e', `HOST_URL=${orchestratorUrl}`,
