@@ -15,8 +15,8 @@ importers:
         specifier: ^0.74.0
         version: 0.74.0(zod@4.3.6)
       '@true-and-useful/janee':
-        specifier: file:../../janee
-        version: file:../../janee(@types/node@22.19.11)(zod@4.3.6)
+        specifier: ^0.12.0
+        version: 0.12.0(@types/node@22.19.11)(zod@4.3.6)
       ai:
         specifier: ^6.0.86
         version: 6.0.97(zod@4.3.6)
@@ -2222,8 +2222,8 @@ packages:
     peerDependencies:
       vite: ^5.2.0 || ^6 || ^7
 
-  '@true-and-useful/janee@file:../../janee':
-    resolution: {directory: ../../janee, type: directory}
+  '@true-and-useful/janee@0.12.0':
+    resolution: {integrity: sha512-bI388LWYAk11eahaJVvSAIF0TqwJfT6JToBLIz34v+GDtebNaEssI9E7AXR0JUbAlOn70cNyOIDEJaoq6UZE4A==}
     engines: {node: '>=18.0.0'}
     hasBin: true
 
@@ -6211,7 +6211,7 @@ snapshots:
       tailwindcss: 4.1.18
       vite: 7.3.1(@types/node@22.19.11)(jiti@2.6.1)(lightningcss@1.30.2)(tsx@4.21.0)
 
-  '@true-and-useful/janee@file:../../janee(@types/node@22.19.11)(zod@4.3.6)':
+  '@true-and-useful/janee@0.12.0(@types/node@22.19.11)(zod@4.3.6)':
     dependencies:
       '@inquirer/prompts': 8.3.0(@types/node@22.19.11)
       '@modelcontextprotocol/sdk': 1.27.1(zod@4.3.6)
