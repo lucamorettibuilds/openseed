@@ -15,7 +15,6 @@ import {
   setLastGoodSHA,
 } from './git.js';
 import { BOARD_DIR, MAIL_DIR } from '../shared/paths.js';
-import { ensureMailbox } from '../shared/mail.js';
 
 const HEALTH_GATE_MS = 10_000;
 const ROLLBACK_TIMEOUT_MS = 60_000;
@@ -251,7 +250,8 @@ export class CreatureSupervisor {
     }
 
     const mailbox = path.join(MAIL_DIR, name);
-    await ensureMailbox(MAIL_DIR, name);
+    fsSync.mkdirSync(path.join(mailbox, 'inbox'), { recursive: true });
+    fsSync.mkdirSync(path.join(mailbox, 'sent'), { recursive: true });
     const hostMailbox = IS_DOCKER
       ? mailbox.replace(process.env.OPENSEED_HOME || process.env.ITSALIVE_HOME || '/data', HOST_PATH)
       : mailbox;
