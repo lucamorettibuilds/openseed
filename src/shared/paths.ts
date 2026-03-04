@@ -175,3 +175,5 @@ export function requireGenomeDir(genome = "dreamer"): string | null {
 }
 
 export const BOARD_DIR = path.join(OPENSEED_HOME, "board");
+
+export const MAIL_DIR = path.join(OPENSEED_HOME, "mail");

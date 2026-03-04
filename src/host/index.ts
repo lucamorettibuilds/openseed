@@ -18,8 +18,10 @@ import {
   CREATURES_DIR,
   GENOMES_DIR,
   OPENSEED_HOME,
+  MAIL_DIR,
 } from '../shared/paths.js';
 import { spawnCreature } from '../shared/spawn.js';
+import { sendMessage, readInbox, markRead } from '../shared/mail.js';
 import { Event } from '../shared/types.js';
 import {
   getSpendingCap,
@@ -947,6 +949,72 @@ export class Orchestrator {
             await this.handleCreatureEvent(name, event);
             res.writeHead(200); res.end('ok');
           } catch { res.writeHead(400); res.end('invalid event'); }
+          return;
+        }
+
+        
+        // ── Mail ──────────────────────────────────────────────────────
+        if (action === 'mail' && req.method === 'POST') {
+          const body = await readBody(req);
+          try {
+            const { to, subject, body: msgBody } = JSON.parse(body) as { to: string; subject?: string; body: string };
+            if (!to || !msgBody) { res.writeHead(400); res.end(JSON.stringify({ error: 'to and body are required' })); return; }
+            const msg = await sendMessage(MAIL_DIR, name, to, subject || '', msgBody);
+
+            // Notify the recipient creature
+            const recipientSup = this.supervisors.get(to);
+            if (recipientSup?.port) {
+              const subjectLine = subject ? ` (subject: "${subject}")` : '';
+              try {
+                // Try to wake (no-op if already running)
+                const wakeRes = await fetch(creatureUrl(to, recipientSup.port, '/wake'), {
+                  method: 'POST',
+                  headers: { 'Content-Type': 'application/json' },
+                  body: JSON.stringify({ reason: `mail from ${name}` }),
+                });
+                const wakeBody = await wakeRes.text();
+                if (wakeBody === 'woken') {
+                  await this.emitEvent(to, { t: new Date().toISOString(), type: 'creature.wake', reason: `mail from ${name}`, source: 'mail' });
+                } else {
+                  // Creature is already running — inject a low-priority system notification
+                  await this.sendMessage(to, `[MAIL] New message from ${name}${subjectLine}. Check your inbox at a natural pause.`, 'system');
+                }
+              } catch { /* recipient not reachable, mail is still saved */ }
+            }
+
+            res.writeHead(200, { 'Content-Type': 'application/json' });
+            res.end(JSON.stringify({ ok: true, id: msg.id }));
+          } catch (e: any) { res.writeHead(400); res.end(JSON.stringify({ error: e.message })); }
+          return;
+        }
+
+        if (action === 'mail' && req.method === 'GET') {
+          try {
+            const messages = await readInbox(MAIL_DIR, name);
+            res.writeHead(200, { 'Content-Type': 'application/json' });
+            res.end(JSON.stringify(messages));
+          } catch (e: any) { res.writeHead(400); res.end(JSON.stringify({ error: e.message })); }
+          return;
+        }
+
+        if (action.startsWith('mail/') && !action.endsWith('/read') && req.method === 'GET') {
+          const msgId = action.slice(5);
+          if (!/^[a-f0-9-]{36}$/.test(msgId)) { res.writeHead(400); res.end(JSON.stringify({ error: 'invalid message id' })); return; }
+          try {
+            const filePath = path.join(MAIL_DIR, name, 'inbox', `${msgId}.json`);
+            const raw = await fs.readFile(filePath, 'utf-8');
+            res.writeHead(200, { 'Content-Type': 'application/json' });
+            res.end(raw);
+          } catch { res.writeHead(404); res.end(JSON.stringify({ error: 'not found' })); }
+          return;
+        }
+
+        if (action.startsWith('mail/') && action.endsWith('/read') && req.method === 'POST') {
+          const msgId = action.slice(5, -5);
+          try {
+            await markRead(MAIL_DIR, name, [msgId]);
+            res.writeHead(200); res.end(JSON.stringify({ ok: true }));
+          } catch (e: any) { res.writeHead(400); res.end(JSON.stringify({ error: e.message })); }
           return;
         }
 

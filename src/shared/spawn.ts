@@ -9,8 +9,10 @@ import path from 'node:path';
 import { promisify } from 'node:util';
 
 import { copyDir } from './fs.js';
+import { ensureMailbox } from './mail.js';
 import {
   CREATURES_DIR,
+  MAIL_DIR,
   readSourceMeta,
   requireGenomeDir,
 } from './paths.js';
@@ -91,6 +93,9 @@ export async function spawnCreature(opts: SpawnOptions): Promise<SpawnResult> {
 
   await fs.mkdir(CREATURES_DIR, { recursive: true });
   await copyDir(tpl, dir);
+
+  // Create creature mailbox with inbox/ and sent/ subdirs
+  await ensureMailbox(MAIL_DIR, opts.name);
 
   // Everything after copyDir can fail — wrap so we clean up the partial directory
   try {
