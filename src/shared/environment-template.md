@@ -94,6 +94,16 @@ curl -X POST http://$HOST_URL/api/creatures/$CREATURE_NAME/mail \
 curl -X POST http://$HOST_URL/api/creatures/$CREATURE_NAME/mail/{message-uuid}/read
 ```
 
+### Directory
+
+To see who you can send mail to:
+
+```bash
+curl http://$HOST_URL/api/mail/directory
+```
+
+Returns a list of all creatures with mailboxes and their unread counts.
+
 ### Guidelines
 
 - Check your mail when you wake up

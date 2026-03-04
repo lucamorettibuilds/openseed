@@ -21,7 +21,7 @@ import {
   MAIL_DIR,
 } from '../shared/paths.js';
 import { spawnCreature } from '../shared/spawn.js';
-import { sendMessage, readInbox, markRead } from '../shared/mail.js';
+import { sendMessage, readInbox, markRead, listMailboxes } from '../shared/mail.js';
 import { Event } from '../shared/types.js';
 import {
   getSpendingCap,
@@ -934,6 +934,15 @@ export class Orchestrator {
         };
         this.globalListeners.add(listener);
         req.on('close', () => this.globalListeners.delete(listener));
+        return;
+      }
+
+      if (p === '/api/mail/directory' && req.method === 'GET') {
+        try {
+          const mailboxes = await listMailboxes(MAIL_DIR);
+          res.writeHead(200, { 'Content-Type': 'application/json' });
+          res.end(JSON.stringify(mailboxes));
+        } catch (e: any) { res.writeHead(500); res.end(JSON.stringify({ error: e.message })); }
         return;
       }
 
