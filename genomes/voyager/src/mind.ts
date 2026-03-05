@@ -1,4 +1,9 @@
-import { appendFileSync } from 'node:fs';
+import {
+  appendFileSync,
+  mkdirSync,
+  rmSync,
+  writeFileSync,
+} from 'node:fs';
 import fs from 'node:fs/promises';
 
 import {
@@ -10,28 +15,27 @@ import { z } from 'zod';
 
 import { createAnthropic } from '@ai-sdk/anthropic';
 
+import {
+  frontierSummary,
+  type FrontierTask,
+  loadFrontier,
+  proposeTask,
+  selectTask,
+  updateTask,
+} from './frontier.js';
+import {
+  commitSkill as commitSkillToLibrary,
+  getRelevantSkillSources,
+  listSkills,
+  skillInventory,
+} from './skills.js';
 import { executeBash } from './tools/bash.js';
 import {
   closeBrowser,
   executeBrowser,
-  type BrowserResult,
 } from './tools/browser.js';
 import { janee as executeJanee } from './tools/janee.js';
-import { see as executeSee, type SeeResult } from './tools/see.js';
-import {
-  commitSkill as commitSkillToLibrary,
-  skillInventory,
-  getRelevantSkillSources,
-  listSkills,
-} from './skills.js';
-import {
-  selectTask,
-  updateTask,
-  proposeTask,
-  frontierSummary,
-  loadFrontier,
-  type FrontierTask,
-} from './frontier.js';
+import { see as executeSee } from './tools/see.js';
 
 const CYCLES_FILE = ".self/cycles.jsonl";
 const CONVERSATION_LOG = ".self/conversation.jsonl";
@@ -41,6 +45,8 @@ const CYCLE_COUNT_FILE = '.sys/cycle-count';
 
 const CYCLE_BUDGET = 40;
 const CYCLE_WARNING = 30;
+const TOOL_RESULT_CAP = 4000;
+const SPILL_DIR = "/tmp/tool-output";
 
 const provider = createAnthropic({
   baseURL: process.env.ANTHROPIC_BASE_URL
@@ -331,6 +337,8 @@ export class Mind {
       await fs.unlink('.sys/sleep.json').catch(() => {});
     } catch {}
 
+    try { rmSync(SPILL_DIR, { recursive: true, force: true }); } catch {}
+
     while (true) {
       // --- ORIENT: select or propose a task ---
       const task = await selectTask();
@@ -594,11 +602,24 @@ ${this.currentTask.attempts > 1 ? `**Prior attempts:** ${this.currentTask.attemp
               ],
             } as any);
           } else {
-            const resultContent = execResult.ok
-              ? JSON.stringify(execResult.data).slice(0, 4000)
+            const fullResult = execResult.ok
+              ? JSON.stringify(execResult.data)
               : `Error: ${execResult.error}`;
 
-            let toolOutput = resultContent;
+            let toolOutput: string;
+            if (fullResult.length > TOOL_RESULT_CAP) {
+              let spillNote = `\n\n[TRUNCATED — showing ${TOOL_RESULT_CAP} of ${fullResult.length} chars]`;
+              try {
+                const id = Math.random().toString(16).slice(2, 8);
+                mkdirSync(SPILL_DIR, { recursive: true });
+                const spillPath = `${SPILL_DIR}/${tc.toolName}-${id}.txt`;
+                writeFileSync(spillPath, fullResult);
+                spillNote = `\n\n[TRUNCATED — showing ${TOOL_RESULT_CAP} of ${fullResult.length} chars. Full output: ${spillPath} — use cat, head, tail, or grep to read it]`;
+              } catch {}
+              toolOutput = fullResult.slice(0, TOOL_RESULT_CAP) + spillNote;
+            } else {
+              toolOutput = fullResult;
+            }
 
             // Cycle budget warning
             if (this.currentActionCount === CYCLE_WARNING) {
