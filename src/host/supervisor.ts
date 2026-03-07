@@ -230,6 +230,19 @@ export class CreatureSupervisor {
     return `creature-${this.name}`;
   }
 
+  private getContainerEnv(cname: string, key: string): string {
+    try {
+      const out = execSync(
+        `docker inspect -f '{{range .Config.Env}}{{println .}}{{end}}' ${cname}`,
+        { encoding: 'utf-8', stdio: ['pipe', 'pipe', 'pipe'] },
+      );
+      for (const line of out.split('\n')) {
+        if (line.startsWith(key + '=')) return line.slice(key.length + 1);
+      }
+    } catch {}
+    return '';
+  }
+
   private destroyContainer() {
     try { execSync(`docker kill ${this.containerName()}`, { stdio: 'ignore' }); } catch {}
     try { execSync(`docker wait ${this.containerName()}`, { stdio: 'ignore', timeout: 5000 }); } catch {}
@@ -315,27 +328,35 @@ export class CreatureSupervisor {
       });
       reconnected = true;
     } else if (this.containerExists()) {
-      console.log(`[${name}] starting existing container (environment preserved)`);
-      try {
-        execSync(`docker start ${cname}`, { stdio: 'ignore', timeout: 15_000 });
-        // Verify the port Docker restored matches what we were told
-        try {
-          const portOut = execSync(`docker port ${cname} 7778`, { encoding: 'utf-8', stdio: ['pipe', 'pipe', 'pipe'] }).trim();
-          const actualPort = parseInt(portOut.split(':').pop()!);
-          if (!isNaN(actualPort) && actualPort !== port) {
-            console.warn(`[${name}] port corrected: supervisor had ${port}, Docker has ${actualPort}`);
-            this.port = actualPort;
-            this.config = { ...this.config, port: actualPort };
-          }
-        } catch {}
-        this.creature = spawn('docker', ['logs', '-f', '--tail', '50', cname], {
-          stdio: ['ignore', 'pipe', 'pipe'],
-        });
-        reconnected = true;
-      } catch {
-        console.log(`[${name}] start failed, creating fresh container`);
+      // Check if config changed (e.g. model) — if so, recreate instead of reusing
+      const containerModel = this.getContainerEnv(cname, 'LLM_MODEL');
+      const wantModel = this.config.model || '';
+      if (containerModel !== wantModel) {
+        console.log(`[${name}] config changed (model: ${containerModel || '(none)'} → ${wantModel || '(default)'}), recreating container`);
         try { execSync(`docker rm -f ${cname}`, { stdio: 'ignore' }); } catch {}
         this.creature = this.createContainer(cname, dir, port, orchestratorPort, autoIterate, name);
+      } else {
+        console.log(`[${name}] starting existing container (environment preserved)`);
+        try {
+          execSync(`docker start ${cname}`, { stdio: 'ignore', timeout: 15_000 });
+          try {
+            const portOut = execSync(`docker port ${cname} 7778`, { encoding: 'utf-8', stdio: ['pipe', 'pipe', 'pipe'] }).trim();
+            const actualPort = parseInt(portOut.split(':').pop()!);
+            if (!isNaN(actualPort) && actualPort !== port) {
+              console.warn(`[${name}] port corrected: supervisor had ${port}, Docker has ${actualPort}`);
+              this.port = actualPort;
+              this.config = { ...this.config, port: actualPort };
+            }
+          } catch {}
+          this.creature = spawn('docker', ['logs', '-f', '--tail', '50', cname], {
+            stdio: ['ignore', 'pipe', 'pipe'],
+          });
+          reconnected = true;
+        } catch {
+          console.log(`[${name}] start failed, creating fresh container`);
+          try { execSync(`docker rm -f ${cname}`, { stdio: 'ignore' }); } catch {}
+          this.creature = this.createContainer(cname, dir, port, orchestratorPort, autoIterate, name);
+        }
       }
     } else {
       this.creature = this.createContainer(cname, dir, port, orchestratorPort, autoIterate, name);
