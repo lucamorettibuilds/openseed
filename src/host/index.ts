@@ -79,6 +79,7 @@ import {
 import { Narrator } from './narrator.js';
 import type { BudgetCheckResult } from './proxy.js';
 import { handleLLMProxy } from './proxy.js';
+import { Ranger } from './ranger.js';
 import {
   CreatureSupervisor,
   SupervisorConfig,
@@ -110,6 +111,7 @@ export class Orchestrator {
   private costs = new CostTracker();
   private pendingOps: Set<string> = new Set();
   private narrator: Narrator | null = null;
+  private ranger: Ranger | null = null;
   private dashboardDistDir: string | null;
   private budgetResetInterval: NodeJS.Timeout | null = null;
   private healthCleanup: (() => void) | null = null;
@@ -152,6 +154,26 @@ export class Orchestrator {
     );
     this.globalListeners.add((name, event) => this.narrator?.onEvent(name, event));
     this.narrator.start();
+
+    this.ranger = new Ranger({
+      listCreatures: () => this.listCreatures(),
+      restartCreature: async (name) => { await this.restartCreature(name); return true; },
+      wakeCreature: async (name, reason) => {
+        const sup = this.supervisors.get(name);
+        if (!sup?.port) return false;
+        const r = await fetch(creatureUrl(name, sup.port, '/wake'), {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ reason: reason || 'Ranger wake' }),
+        });
+        if (r.ok) await this.emitEvent(name, { t: new Date().toISOString(), type: 'creature.wake', reason: reason || 'Ranger wake', source: 'manual' });
+        return r.ok;
+      },
+      messageCreature: async (name, message) => {
+        try { await this.sendMessage(name, message); return true; } catch { return false; }
+      },
+      costs: this.costs,
+    });
 
     console.log(`[orchestrator] ready at http://localhost:${this.port}`);
   }
@@ -710,6 +732,27 @@ export class Orchestrator {
         });
         res.writeHead(200, { 'Content-Type': 'application/json' });
         res.end(JSON.stringify(models));
+        return;
+      }
+
+      // -- Ranger routes --
+
+      if (p === '/api/ranger/chat' && req.method === 'POST') {
+        if (!this.ranger) { res.writeHead(503); res.end('ranger not initialized'); return; }
+        try {
+          const body = JSON.parse(await readBody(req));
+          const message = body.message || body.text || '';
+          const context = body.context || {};
+          if (!message) { res.writeHead(400); res.end('message is required'); return; }
+          await this.ranger.chat(message, context, res);
+        } catch (err: any) { if (!res.headersSent) { res.writeHead(400); res.end(err.message); } }
+        return;
+      }
+
+      if (p === '/api/ranger/chat' && req.method === 'DELETE') {
+        this.ranger?.reset();
+        res.writeHead(200, { 'Content-Type': 'application/json' });
+        res.end(JSON.stringify({ ok: true }));
         return;
       }
 

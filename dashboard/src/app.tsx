@@ -1,13 +1,18 @@
 import {
   useEffect,
   useRef,
+  useState,
 } from 'react';
+
+import { Binoculars } from 'lucide-react';
 
 import { CreatureDetail } from '@/components/CreatureDetail';
 import { Overview } from '@/components/Overview';
+import { RangerPanel } from '@/components/RangerPanel';
 import { SettingsModal } from '@/components/SettingsModal';
 import { ShareModal } from '@/components/ShareModal';
 import { Sidebar } from '@/components/Sidebar';
+import { Button } from '@/components/ui/button';
 import { TooltipProvider } from '@/components/ui/tooltip';
 import { useStore } from '@/state';
 
@@ -36,6 +41,7 @@ export function App() {
   const evLen = useStore(s => s.creatureEvents.length);
   const degraded = useStore(s => s.health.status !== 'healthy');
   const { refresh, loadNarration, loadRecentEvents, loadGenomes, loadModels, loadGlobalBudget, loadHealth, handleSSEEvent } = useStore();
+  const [rangerOpen, setRangerOpen] = useState(false);
 
   const showSidebar = sel !== null || sbOpen;
 
@@ -90,9 +96,19 @@ export function App() {
       <HealthBanner />
       <div className={`flex min-h-screen bg-bg text-text-primary text-[13px] font-sans ${degraded ? 'pt-10' : ''}`}>
         {showSidebar && <Sidebar />}
-        <div className="flex-1 min-w-0 flex flex-col">
+        <div className="flex-1 min-w-0 flex flex-col relative">
+          {/* Ranger toggle */}
+          <Button
+            variant="ghost" size="icon-xs"
+            className={`fixed top-3 right-3 z-50 ${rangerOpen ? 'text-accent-blue' : 'text-text-faint hover:text-text-secondary'}`}
+            onClick={() => setRangerOpen(!rangerOpen)}
+            title={rangerOpen ? 'Close ranger' : 'Open ranger'}
+          >
+            <Binoculars className="size-4" />
+          </Button>
           {sel === null ? <Overview /> : <CreatureDetail />}
         </div>
+        {rangerOpen && <RangerPanel onClose={() => setRangerOpen(false)} />}
         <ShareModal />
         <SettingsModal />
       </div>
