@@ -996,6 +996,12 @@ export class Orchestrator {
           try {
             const { to, subject, body: msgBody } = JSON.parse(body) as { to: string; subject?: string; body: string };
             if (!to || !msgBody) { res.writeHead(400); res.end(JSON.stringify({ error: 'to and body are required' })); return; }
+            if (!this.supervisors.has(to)) {
+              const known = [...this.supervisors.keys()].sort();
+              res.writeHead(404, { 'Content-Type': 'application/json' });
+              res.end(JSON.stringify({ error: `unknown recipient "${to}". known creatures: ${known.join(', ')}` }));
+              return;
+            }
             const msg = await sendMessage(MAIL_DIR, name, to, subject || '', msgBody);
 
             // Notify the recipient creature
