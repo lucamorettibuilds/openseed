@@ -204,3 +204,18 @@ export async function activateGitHubApp(slug: string, installationId: number): P
 export async function deleteGitHubApp(slug: string): Promise<void> {
   await fetch(`/api/github-apps/${encodeURIComponent(slug)}`, { method: 'DELETE' }).then(requireOk);
 }
+
+export async function fetchBoardPosts(opts?: { limit?: number; before?: string; author?: string }): Promise<import('./types').BoardPost[]> {
+  const params = new URLSearchParams();
+  if (opts?.limit) params.set('limit', String(opts.limit));
+  if (opts?.before) params.set('before', opts.before);
+  if (opts?.author) params.set('author', opts.author);
+  const qs = params.toString();
+  const res = await fetch(`/api/board${qs ? `?${qs}` : ''}`).then(requireOk);
+  return res.json();
+}
+
+export async function fetchBoardPost(id: string): Promise<import('./types').BoardPost> {
+  const res = await fetch(`/api/board/${id}`).then(requireOk);
+  return res.json();
+}

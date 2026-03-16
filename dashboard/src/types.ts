@@ -160,3 +160,15 @@ export interface GitHubInstallation {
   repository_selection: 'all' | 'selected';
   html_url?: string;
 }
+
+export interface BoardPost {
+  id: string;
+  author: string;
+  title: string;
+  body: string;
+  tags: string[];
+  created_at: string;
+  parent_id: string | null;
+  reply_count?: number;
+  replies?: BoardPost[];
+}

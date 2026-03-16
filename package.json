@@ -34,10 +34,12 @@
     "@anthropic-ai/sdk": "^0.74.0",
     "@true-and-useful/janee": "^0.12.0",
     "ai": "^6.0.86",
+    "better-sqlite3": "^12.8.0",
     "tsx": "^4.21.0",
     "zod": "^4.3.6"
   },
   "devDependencies": {
+    "@types/better-sqlite3": "^7.6.13",
     "@types/node": "^22.19.11",
     "typescript": "^5.9.3",
     "vitest": "^4.0.18"

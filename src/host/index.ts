@@ -14,11 +14,26 @@ import { fileURLToPath } from 'node:url';
 import { promisify } from 'node:util';
 
 import {
+  createPost,
+  getPost,
+  getReplies,
+  initBoard,
+  listPosts,
+  migrateFromFilesystem as migrateBoardFromFilesystem,
+} from '../shared/board.js';
+import {
   archiveMessages,
+  flagMessage,
+  getMessage,
+  initMail,
   listMailboxes,
+  listMessages,
   markRead,
-  readInbox,
+  migrateFromFilesystem as migrateMailFromFilesystem,
   sendMessage,
+  setTriageNote,
+  tagMessage,
+  unarchiveMessages,
 } from '../shared/mail.js';
 import {
   getAllModels,
@@ -126,6 +141,26 @@ export class Orchestrator {
   async start() {
     console.log('[orchestrator] starting...');
     await initPricing();
+
+    const boardDbPath = path.join(OPENSEED_HOME, 'board.db');
+    initBoard(boardDbPath);
+    const boardPostsDir = path.join(OPENSEED_HOME, 'board', 'posts');
+    const boardMigrated = await migrateBoardFromFilesystem(boardPostsDir);
+    if (boardMigrated > 0) {
+      console.log(`[orchestrator] migrated ${boardMigrated} board posts from filesystem`);
+      await fs.rm(boardPostsDir, { recursive: true, force: true });
+      console.log(`[orchestrator] removed legacy board/posts/ directory`);
+    }
+
+    const mailDbPath = path.join(OPENSEED_HOME, 'mail.db');
+    initMail(mailDbPath);
+    const mailMigrated = await migrateMailFromFilesystem(MAIL_DIR);
+    if (mailMigrated > 0) {
+      console.log(`[orchestrator] migrated ${mailMigrated} mail messages from filesystem`);
+      await fs.rm(MAIL_DIR, { recursive: true, force: true });
+      console.log(`[orchestrator] removed legacy mail/ directory`);
+    }
+
     await this.writeRunFile();
     this.setupCleanup();
 
@@ -1017,9 +1052,41 @@ export class Orchestrator {
 
       if (p === '/api/mail/directory' && req.method === 'GET') {
         try {
-          const mailboxes = await listMailboxes(MAIL_DIR);
+          const mailboxes = listMailboxes();
           res.writeHead(200, { 'Content-Type': 'application/json' });
           res.end(JSON.stringify(mailboxes));
+        } catch (e: any) { res.writeHead(500); res.end(JSON.stringify({ error: e.message })); }
+        return;
+      }
+
+      // Board routes (read endpoints — used by both dashboard and creatures)
+      if (p === '/api/board' && req.method === 'GET') {
+        try {
+          const url = new URL(req.url!, `http://localhost:${this.port}`);
+          const opts = {
+            limit: parseInt(url.searchParams.get('limit') || '50'),
+            before: url.searchParams.get('before') || undefined,
+            author: url.searchParams.get('author') || undefined,
+          };
+          res.writeHead(200, { 'Content-Type': 'application/json' });
+          res.end(JSON.stringify(listPosts(opts)));
+        } catch (e: any) { res.writeHead(500); res.end(JSON.stringify({ error: e.message })); }
+        return;
+      }
+
+      const boardMatch = p.match(/^\/api\/board\/([a-f0-9-]{36})(\/replies)?$/);
+      if (boardMatch && req.method === 'GET') {
+        const [, postId, repliesPath] = boardMatch;
+        try {
+          if (repliesPath) {
+            res.writeHead(200, { 'Content-Type': 'application/json' });
+            res.end(JSON.stringify(getReplies(postId)));
+          } else {
+            const post = getPost(postId);
+            if (!post) { res.writeHead(404); res.end(JSON.stringify({ error: 'not found' })); return; }
+            res.writeHead(200, { 'Content-Type': 'application/json' });
+            res.end(JSON.stringify(post));
+          }
         } catch (e: any) { res.writeHead(500); res.end(JSON.stringify({ error: e.message })); }
         return;
       }
@@ -1039,7 +1106,21 @@ export class Orchestrator {
           return;
         }
 
-        
+        // ── Board ─────────────────────────────────────────────────────
+        if (action === 'board' && req.method === 'POST') {
+          const body = await readBody(req);
+          try {
+            const { title, body: postBody, tags, parent_id } = JSON.parse(body) as {
+              title?: string; body: string; tags?: string[]; parent_id?: string;
+            };
+            if (!postBody) { res.writeHead(400); res.end(JSON.stringify({ error: 'body is required' })); return; }
+            const post = createPost(name, title || '', postBody, tags, parent_id);
+            res.writeHead(201, { 'Content-Type': 'application/json' });
+            res.end(JSON.stringify(post));
+          } catch (e: any) { res.writeHead(400); res.end(JSON.stringify({ error: e.message })); }
+          return;
+        }
+
         // ── Mail ──────────────────────────────────────────────────────
         if (action === 'mail' && req.method === 'POST') {
           const body = await readBody(req);
@@ -1052,25 +1133,23 @@ export class Orchestrator {
               res.end(JSON.stringify({ error: `unknown recipient "${to}". known creatures: ${known.join(', ')}` }));
               return;
             }
-            const msg = await sendMessage(MAIL_DIR, name, to, subject || '', msgBody);
+            const msg = sendMessage(name, to, subject || '', msgBody);
 
             // Notify the recipient creature
             const recipientSup = this.supervisors.get(to);
             if (recipientSup?.port) {
               const subjectLine = subject ? ` (subject: "${subject}")` : '';
               try {
-                // Try to wake (no-op if already running)
                 const wakeRes = await fetch(creatureUrl(to, recipientSup.port, '/wake'), {
                   method: 'POST',
                   headers: { 'Content-Type': 'application/json' },
-                  body: JSON.stringify({ reason: `mail from ${name}${subjectLine} — check /mail/inbox/` }),
+                  body: JSON.stringify({ reason: `mail from ${name}${subjectLine} — check your inbox via the mail API` }),
                 });
                 const wakeBody = await wakeRes.text();
                 if (wakeBody === 'woken') {
                   await this.emitEvent(to, { t: new Date().toISOString(), type: 'creature.wake', reason: `mail from ${name}${subjectLine}`, source: 'mail' });
                 } else {
-                  // Creature is already running — inject a low-priority system notification
-                  await this.sendMessage(to, `[MAIL] New message from ${name}${subjectLine}. Check your inbox at a natural pause: ls /mail/inbox/`, 'system');
+                  await this.sendMessage(to, `[MAIL] New message from ${name}${subjectLine}. Check your inbox at a natural pause.`, 'system');
                 }
               } catch { /* recipient not reachable, mail is still saved */ }
             }
@@ -1083,40 +1162,64 @@ export class Orchestrator {
 
         if (action === 'mail' && req.method === 'GET') {
           try {
-            const messages = await readInbox(MAIL_DIR, name);
+            const url = new URL(req.url!, `http://localhost:${this.port}`);
+            const opts = {
+              folder: url.searchParams.get('folder') || 'inbox',
+              unread: url.searchParams.get('unread') === 'true',
+              limit: parseInt(url.searchParams.get('limit') || '50'),
+              offset: parseInt(url.searchParams.get('offset') || '0'),
+            };
+            const result = listMessages(name, opts);
             res.writeHead(200, { 'Content-Type': 'application/json' });
-            res.end(JSON.stringify(messages));
+            res.end(JSON.stringify(result));
           } catch (e: any) { res.writeHead(400); res.end(JSON.stringify({ error: e.message })); }
           return;
         }
 
-        if (action.startsWith('mail/') && !action.endsWith('/read') && req.method === 'GET') {
-          const msgId = action.slice(5);
-          if (!/^[a-f0-9-]{36}$/.test(msgId)) { res.writeHead(400); res.end(JSON.stringify({ error: 'invalid message id' })); return; }
+        // mail/:id/action routes
+        const mailActionMatch = action.match(/^mail\/([a-f0-9-]{36})\/(read|archive|unarchive|flag|unflag|tag|triage)$/);
+        if (mailActionMatch && req.method === 'POST') {
+          const [, msgId, mailAction] = mailActionMatch;
           try {
-            const filePath = path.join(MAIL_DIR, name, 'inbox', `${msgId}.json`);
-            const raw = await fs.readFile(filePath, 'utf-8');
-            res.writeHead(200, { 'Content-Type': 'application/json' });
-            res.end(raw);
-          } catch { res.writeHead(404); res.end(JSON.stringify({ error: 'not found' })); }
-          return;
-        }
-
-        if (action.startsWith('mail/') && action.endsWith('/read') && req.method === 'POST') {
-          const msgId = action.slice(5, -5);
-          try {
-            await markRead(MAIL_DIR, name, [msgId]);
-            res.writeHead(200); res.end(JSON.stringify({ ok: true }));
+            if (mailAction === 'read') {
+              markRead(name, [msgId]);
+              res.writeHead(200); res.end(JSON.stringify({ ok: true }));
+            } else if (mailAction === 'archive') {
+              const count = archiveMessages(name, [msgId]);
+              res.writeHead(200); res.end(JSON.stringify({ ok: true, archived: count }));
+            } else if (mailAction === 'unarchive') {
+              const count = unarchiveMessages(name, [msgId]);
+              res.writeHead(200); res.end(JSON.stringify({ ok: true, unarchived: count }));
+            } else if (mailAction === 'flag') {
+              flagMessage(name, msgId, true);
+              res.writeHead(200); res.end(JSON.stringify({ ok: true }));
+            } else if (mailAction === 'unflag') {
+              flagMessage(name, msgId, false);
+              res.writeHead(200); res.end(JSON.stringify({ ok: true }));
+            } else if (mailAction === 'tag') {
+              const body = await readBody(req);
+              const { tags } = JSON.parse(body) as { tags: string[] };
+              tagMessage(name, msgId, tags);
+              res.writeHead(200); res.end(JSON.stringify({ ok: true }));
+            } else if (mailAction === 'triage') {
+              const body = await readBody(req);
+              const { note } = JSON.parse(body) as { note: string };
+              setTriageNote(name, msgId, note);
+              res.writeHead(200); res.end(JSON.stringify({ ok: true }));
+            }
           } catch (e: any) { res.writeHead(400); res.end(JSON.stringify({ error: e.message })); }
           return;
         }
 
-        if (action.startsWith('mail/') && action.endsWith('/archive') && req.method === 'POST') {
-          const msgId = action.slice(5, -8);
-          if (!/^[a-f0-9-]{36}$/.test(msgId)) { res.writeHead(400); res.end(JSON.stringify({ error: 'invalid message id' })); return; }
+        // GET single message: mail/:id
+        const mailGetMatch = action.match(/^mail\/([a-f0-9-]{36})$/);
+        if (mailGetMatch && req.method === 'GET') {
+          const [, msgId] = mailGetMatch;
           try {
-            const count = await archiveMessages(MAIL_DIR, name, [msgId]);
-            res.writeHead(200); res.end(JSON.stringify({ ok: true, archived: count }));
+            const msg = getMessage(name, msgId);
+            if (!msg) { res.writeHead(404); res.end(JSON.stringify({ error: 'not found' })); return; }
+            res.writeHead(200, { 'Content-Type': 'application/json' });
+            res.end(JSON.stringify(msg));
           } catch (e: any) { res.writeHead(400); res.end(JSON.stringify({ error: e.message })); }
           return;
         }
