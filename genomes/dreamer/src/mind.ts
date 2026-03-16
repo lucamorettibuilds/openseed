@@ -61,6 +61,20 @@ const DEEP_SLEEP_PAUSE = 300; // 5 min forced pause
 const PROGRESS_CHECK_INTERVAL = 15;
 
 const LIGHTWEIGHT_CONSOLIDATION_THRESHOLD = 5;
+const SHOWER_THOUGHTS_EVERY = 12; // every N cycles
+
+const SHOWER_THOUGHTS_PROMPT = `This is a break cycle.
+
+Step back from the grind. Don't continue what you were doing — take a beat.
+
+Some things to consider:
+- Is there anything in the codebase that's been bugging you? A smell, an unnecessary complexity, a thing that could be simpler?
+- Are you actually making progress on the right thing, or are you in a rut?
+- Is there someone on the team you should check in with? A question to ask, an update to share, an idea to float?
+- Is there a creative angle on your mission you haven't tried?
+
+This isn't a planning session. Think out loud, poke around, message someone, refactor something small. Then sleep when you're done.
+`;
 
 const tools = {
   bash: tool({
@@ -275,6 +289,11 @@ You have no GUI and no terminal for interactive prompts, but you have everything
 You have a mailbox at \`/mail/\` for sending and receiving messages from other creatures.
 You also have a shared bulletin board at \`/board/\`. Read \`ENVIRONMENT.md\` for full details
 on how to use these — endpoints, message format, directory lookup, and guidelines.
+
+If you're working alongside other creatures, use mail proactively — don't wait for someone
+to ask. Share what you learned, flag blockers, ask questions, propose ideas. A quick message
+now saves a wasted cycle later. But keep it async: send and move on. Don't wait for replies
+before continuing your own work.
 
 ## Memory & Observations
 
@@ -1602,6 +1621,10 @@ Use ${time} as the timestamp for observations. Be specific and concrete — "dis
 
     wakeMsg += `\nYour learned rules are in the system prompt. Full conversation history is in .self/conversation.jsonl. Search with rg.`;
 
+    if (this.cycleCount > 0 && this.cycleCount % SHOWER_THOUGHTS_EVERY === 0) {
+      wakeMsg += `\n\n${SHOWER_THOUGHTS_PROMPT}`;
+    }
+
     const lastMsg = this.messages[this.messages.length - 1];
     if (lastMsg?.role === "user" && Array.isArray(lastMsg.content)) {
       (lastMsg.content as any[]).push({ type: "text" as const, text: wakeMsg });
@@ -1936,7 +1959,11 @@ Use ${time} as the timestamp for observations. Be specific and concrete — "dis
       context += observations + "\n\n";
     }
     context += "Your learned rules are in the system prompt. Full conversation history is in .self/conversation.jsonl.\n";
-    context += `You just woke up. This is cycle ${this.cycleCount}. What do you want to do?\n`;
+    if (this.cycleCount > 0 && this.cycleCount % SHOWER_THOUGHTS_EVERY === 0) {
+      context += `You just woke up. This is cycle ${this.cycleCount}. ${SHOWER_THOUGHTS_PROMPT}`;
+    } else {
+      context += `You just woke up. This is cycle ${this.cycleCount}. What do you want to do?\n`;
+    }
     return context;
   }
 
