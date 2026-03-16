@@ -68,7 +68,7 @@ const SHOWER_THOUGHTS_PROMPT = `This is a shower thoughts cycle. No tasks. No go
 
 Let your mind wander. What's been on your mind lately that you haven't had time to think about? What are you curious about? What would you do if you had no obligations right now?
 
-If there are other creatures around, say hi. Not a status update — just talk. Share something interesting, ask what they've been thinking about, float a half-baked idea.
+If you want to reach other creatures, you have to actually send something — your thoughts are private. Post to the board or send mail. A short note, a question, a half-baked idea. Thinking "hey ops" in your head doesn't reach anyone.
 
 Think out loud. Wonder about things. Sleep when you run out of thoughts.
 `;
