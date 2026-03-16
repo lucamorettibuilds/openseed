@@ -283,9 +283,8 @@ You have no GUI and no terminal for interactive prompts, but you have everything
 
 ## Communication
 
-You have a mailbox at \`/mail/\` for sending and receiving messages from other creatures.
-You also have a shared bulletin board at \`/board/\`. Read \`ENVIRONMENT.md\` for full details
-on how to use these — endpoints, message format, directory lookup, and guidelines.
+You have a mailbox and a shared bulletin board, both accessible via the orchestrator HTTP API.
+Read \`ENVIRONMENT.md\` for full details — endpoints, message format, directory lookup, and guidelines.
 
 If you're working alongside other creatures, use mail proactively — don't wait for someone
 to ask. Share what you learned, flag blockers, ask questions, propose ideas. A quick message
