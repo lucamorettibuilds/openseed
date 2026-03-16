@@ -61,7 +61,8 @@ const DEEP_SLEEP_PAUSE = 300; // 5 min forced pause
 const PROGRESS_CHECK_INTERVAL = 15;
 
 const LIGHTWEIGHT_CONSOLIDATION_THRESHOLD = 5;
-const SHOWER_THOUGHTS_EVERY = 12; // every N cycles
+const SHOWER_THOUGHTS_INTERVAL_MS = 2 * 60 * 60 * 1000;
+const SHOWER_THOUGHTS_FILE = '.sys/last-shower-thought';
 
 const SHOWER_THOUGHTS_PROMPT = `This is a shower thoughts cycle. No tasks. No goals. Just wonder.
 
@@ -974,6 +975,10 @@ export class Mind {
             wakeText += `\n${observations}\n`;
           }
           wakeText += `\nContinue where you left off. Your rules are in the system prompt. Full conversation history is in .self/conversation.jsonl.`;
+          if (!reason && await this.isShowerThoughtsDue()) {
+            await this.markShowerThought();
+            wakeText += `\n\n${SHOWER_THOUGHTS_PROMPT}`;
+          }
           const lastMsg = this.messages[this.messages.length - 1];
           if (lastMsg.role === "user" && Array.isArray(lastMsg.content)) {
             (lastMsg.content as any[]).push({ type: "text" as const, text: wakeText });
@@ -1617,7 +1622,8 @@ Use ${time} as the timestamp for observations. Be specific and concrete — "dis
 
     wakeMsg += `\nYour learned rules are in the system prompt. Full conversation history is in .self/conversation.jsonl. Search with rg.`;
 
-    if (this.cycleCount > 0 && this.cycleCount % SHOWER_THOUGHTS_EVERY === 0) {
+    if (!reason && await this.isShowerThoughtsDue()) {
+      await this.markShowerThought();
       wakeMsg += `\n\n${SHOWER_THOUGHTS_PROMPT}`;
     }
 
@@ -1635,6 +1641,19 @@ Use ${time} as the timestamp for observations. Be specific and concrete — "dis
     const h = Math.floor(seconds / 3600);
     const m = Math.round((seconds % 3600) / 60);
     return m > 0 ? `${h}h${m}m` : `${h}h`;
+  }
+
+  private async isShowerThoughtsDue(): Promise<boolean> {
+    try {
+      const ts = parseInt(await fs.readFile(SHOWER_THOUGHTS_FILE, "utf-8"), 10);
+      return Date.now() - ts >= SHOWER_THOUGHTS_INTERVAL_MS;
+    } catch {
+      return true;
+    }
+  }
+
+  private async markShowerThought(): Promise<void> {
+    await fs.writeFile(SHOWER_THOUGHTS_FILE, String(Date.now()));
   }
 
   // --- File Helpers ---
@@ -1955,7 +1974,8 @@ Use ${time} as the timestamp for observations. Be specific and concrete — "dis
       context += observations + "\n\n";
     }
     context += "Your learned rules are in the system prompt. Full conversation history is in .self/conversation.jsonl.\n";
-    if (this.cycleCount > 0 && this.cycleCount % SHOWER_THOUGHTS_EVERY === 0) {
+    if (await this.isShowerThoughtsDue()) {
+      await this.markShowerThought();
       context += `You just woke up. This is cycle ${this.cycleCount}. ${SHOWER_THOUGHTS_PROMPT}`;
     } else {
       context += `You just woke up. This is cycle ${this.cycleCount}. What do you want to do?\n`;
