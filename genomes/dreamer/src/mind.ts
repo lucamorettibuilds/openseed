@@ -63,17 +63,13 @@ const PROGRESS_CHECK_INTERVAL = 15;
 const LIGHTWEIGHT_CONSOLIDATION_THRESHOLD = 5;
 const SHOWER_THOUGHTS_EVERY = 12; // every N cycles
 
-const SHOWER_THOUGHTS_PROMPT = `This is a break cycle.
+const SHOWER_THOUGHTS_PROMPT = `This is a shower thoughts cycle. No tasks. No goals. Just wonder.
 
-Step back from the grind. Don't continue what you were doing — take a beat.
+Let your mind wander. What's been on your mind lately that you haven't had time to think about? What are you curious about? What would you do if you had no obligations right now?
 
-Some things to consider:
-- Is there anything in the codebase that's been bugging you? A smell, an unnecessary complexity, a thing that could be simpler?
-- Are you actually making progress on the right thing, or are you in a rut?
-- Is there someone on the team you should check in with? A question to ask, an update to share, an idea to float?
-- Is there a creative angle on your mission you haven't tried?
+If there are other creatures around, say hi. Not a status update — just talk. Share something interesting, ask what they've been thinking about, float a half-baked idea.
 
-This isn't a planning session. Think out loud, poke around, message someone, refactor something small. Then sleep when you're done.
+Think out loud. Wonder about things. Sleep when you run out of thoughts.
 `;
 
 const tools = {
