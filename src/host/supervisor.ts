@@ -4,6 +4,7 @@ import {
   spawn,
 } from 'node:child_process';
 import fsSync from 'node:fs';
+import net from 'node:net';
 import path from 'node:path';
 
 import {
@@ -67,15 +68,19 @@ export class CreatureSupervisor {
   private onEvent: (name: string, event: Event) => Promise<void>;
   private recentOutput: string[] = [];
 
+  private onReallocatePort: (() => Promise<number>) | null = null;
+
   constructor(
     config: SupervisorConfig,
     onEvent: (name: string, event: Event) => Promise<void>,
+    opts?: { onReallocatePort?: () => Promise<number> },
   ) {
     this.name = config.name;
     this.dir = config.dir;
     this.port = config.port;
     this.config = config;
     this.onEvent = onEvent;
+    this.onReallocatePort = opts?.onReallocatePort ?? null;
   }
 
   async start(): Promise<void> {
@@ -249,6 +254,40 @@ export class CreatureSupervisor {
     try { execSync(`docker rm -f ${this.containerName()}`, { stdio: 'ignore' }); } catch {}
   }
 
+  private isPortFree(port: number): Promise<boolean> {
+    const check = (host: string): Promise<boolean> => new Promise((resolve) => {
+      const server = net.createServer();
+      server.once('error', () => resolve(false));
+      server.once('listening', () => { server.close(() => resolve(true)); });
+      server.listen(port, host);
+    });
+    return check('0.0.0.0').then(ok => ok ? check('::') : false);
+  }
+
+  private async ensurePort(): Promise<void> {
+    const { port } = this.config;
+    if (await this.isPortFree(port)) return;
+    console.warn(`[${this.name}] port ${port} is not available`);
+    const newPort = await this.remountWithNewPort();
+    if (!newPort) throw new Error(`port ${port} unavailable and no reallocation callback`);
+  }
+
+  private async remountWithNewPort(): Promise<number | null> {
+    if (!this.onReallocatePort) return null;
+    const cname = this.containerName();
+    try {
+      execSync(`docker commit ${cname} ${cname}`, { stdio: 'ignore', timeout: 120_000 });
+    } catch {
+      // Can't commit (e.g. "Created" state) — nothing to preserve
+    }
+    try { execSync(`docker rm -f ${cname}`, { stdio: 'ignore' }); } catch {}
+    const newPort = await this.onReallocatePort();
+    this.port = newPort;
+    this.config = { ...this.config, port: newPort };
+    console.log(`[${this.name}] port reallocated to ${newPort}`);
+    return newPort;
+  }
+
   private createContainer(
     cname: string, dir: string, port: number,
     orchestratorPort: number, autoIterate: boolean, name: string,
@@ -312,8 +351,7 @@ export class CreatureSupervisor {
   }
 
   private async spawnCreature() {
-    const { dir, port, orchestratorPort, autoIterate, name } = this.config;
-    this.currentSHA = getCurrentSHA(dir);
+    this.currentSHA = getCurrentSHA(this.config.dir);
 
     let reconnected = false;
     const cname = this.containerName();
@@ -322,33 +360,34 @@ export class CreatureSupervisor {
     fsSync.mkdirSync(path.join(BOARD_DIR, "posts"), { recursive: true });
 
     if (this.isContainerRunning()) {
-      console.log(`[${name}] reconnecting to running container`);
+      console.log(`[${this.name}] reconnecting to running container`);
       this.creature = spawn('docker', ['logs', '-f', '--tail', '50', cname], {
         stdio: ['ignore', 'pipe', 'pipe'],
       });
       reconnected = true;
     } else if (this.containerExists()) {
-      // If config changed (e.g. model), commit container state then recreate
       const containerModel = this.getContainerEnv(cname, 'LLM_MODEL');
       const wantModel = this.config.model || '';
       if (containerModel !== wantModel) {
-        console.log(`[${name}] config changed (model: ${containerModel || '(none)'} → ${wantModel || '(default)'}), remounting`);
+        console.log(`[${this.name}] config changed (model: ${containerModel || '(none)'} → ${wantModel || '(default)'}), remounting`);
         try {
           execSync(`docker commit ${cname} ${cname}`, { stdio: 'ignore', timeout: 120_000 });
         } catch (err) {
-          console.error(`[${name}] commit failed before remount, container preserved`, err);
+          console.error(`[${this.name}] commit failed before remount, container preserved`, err);
         }
         try { execSync(`docker rm -f ${cname}`, { stdio: 'ignore' }); } catch {}
+        await this.ensurePort();
+        const { dir, port, orchestratorPort, autoIterate, name } = this.config;
         this.creature = this.createContainer(cname, dir, port, orchestratorPort, autoIterate, name);
       } else {
-        console.log(`[${name}] starting existing container (environment preserved)`);
+        console.log(`[${this.name}] starting existing container (environment preserved)`);
         try {
           execSync(`docker start ${cname}`, { stdio: 'ignore', timeout: 15_000 });
           try {
             const portOut = execSync(`docker port ${cname} 7778`, { encoding: 'utf-8', stdio: ['pipe', 'pipe', 'pipe'] }).trim();
             const actualPort = parseInt(portOut.split(':').pop()!);
-            if (!isNaN(actualPort) && actualPort !== port) {
-              console.warn(`[${name}] port corrected: supervisor had ${port}, Docker has ${actualPort}`);
+            if (!isNaN(actualPort) && actualPort !== this.port) {
+              console.warn(`[${this.name}] port corrected: supervisor had ${this.port}, Docker has ${actualPort}`);
               this.port = actualPort;
               this.config = { ...this.config, port: actualPort };
             }
@@ -358,19 +397,22 @@ export class CreatureSupervisor {
           });
           reconnected = true;
         } catch {
-          console.log(`[${name}] start failed, creating fresh container`);
-          try { execSync(`docker rm -f ${cname}`, { stdio: 'ignore' }); } catch {}
+          console.log(`[${this.name}] start failed, remounting`);
+          await this.remountWithNewPort();
+          const { dir, port, orchestratorPort, autoIterate, name } = this.config;
           this.creature = this.createContainer(cname, dir, port, orchestratorPort, autoIterate, name);
         }
       }
     } else {
+      await this.ensurePort();
+      const { dir, port, orchestratorPort, autoIterate, name } = this.config;
       this.creature = this.createContainer(cname, dir, port, orchestratorPort, autoIterate, name);
     }
 
     this.recentOutput = [];
     this.creature.stdout?.on('data', (data: Buffer) => {
       for (const line of data.toString().split('\n').filter(Boolean)) {
-        console.log(`[${name}] ${line}`);
+        console.log(`[${this.name}] ${line}`);
         this.lastOutputAt = Date.now();
         this.recentOutput.push(line);
         if (this.recentOutput.length > MAX_LOG_LINES) this.recentOutput.shift();
@@ -378,7 +420,7 @@ export class CreatureSupervisor {
     });
     this.creature.stderr?.on('data', (data: Buffer) => {
       for (const line of data.toString().split('\n').filter(Boolean)) {
-        console.error(`[${name}] ${line}`);
+        console.error(`[${this.name}] ${line}`);
         this.lastOutputAt = Date.now();
         this.recentOutput.push(`STDERR: ${line}`);
         if (this.recentOutput.length > MAX_LOG_LINES) this.recentOutput.shift();
@@ -395,7 +437,7 @@ export class CreatureSupervisor {
     }
 
     this.creature.on('exit', (code) => {
-      console.log(`[${name}] process exited with code ${code}`);
+      console.log(`[${this.name}] process exited with code ${code}`);
       if (!this.expectingExit) {
         if (reconnected && code === 0 && this.isContainerRunning()) return;
         this.handleCreatureFailure('crash');
@@ -543,7 +585,11 @@ export class CreatureSupervisor {
       try {
         execSync(`docker restart ${this.containerName()}`, { stdio: 'ignore', timeout: 30_000 });
       } catch {
-        this.destroyContainer();
+        if (this.onReallocatePort) {
+          await this.remountWithNewPort();
+        } else {
+          this.destroyContainer();
+        }
       }
     }
 

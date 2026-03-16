@@ -275,12 +275,13 @@ export class Orchestrator {
   }
 
   private isPortAvailable(port: number): Promise<boolean> {
-    return new Promise((resolve) => {
+    const check = (host: string): Promise<boolean> => new Promise((resolve) => {
       const server = net.createServer();
       server.once('error', () => resolve(false));
       server.once('listening', () => { server.close(() => resolve(true)); });
-      server.listen(port, '127.0.0.1');
+      server.listen(port, host);
     });
+    return check('0.0.0.0').then(ok => ok ? check('::') : false);
   }
 
   private isDockerAvailable(): boolean {
@@ -320,7 +321,9 @@ export class Orchestrator {
 
       const autoIterate = !(opts?.manual);
       const existingPort = this.getContainerPort(name);
-      const port = existingPort || await this.allocatePort();
+      const port = (existingPort && await this.isPortAvailable(existingPort))
+        ? existingPort
+        : await this.allocatePort();
 
       console.log(`[orchestrator] starting ${name} on port ${port}${existingPort ? ' (existing container)' : ''}`);
       await this.startCreatureInternal(name, dir, port, { autoIterate });
@@ -353,6 +356,8 @@ export class Orchestrator {
 
     const supervisor = new CreatureSupervisor(config, async (n, event) => {
       await this.emitEvent(n, event);
+    }, {
+      onReallocatePort: () => this.allocatePort(),
     });
 
     this.supervisors.set(name, supervisor);
@@ -368,9 +373,11 @@ export class Orchestrator {
           console.log(`[${name}] recovered status: sleeping (from event history)`);
           break;
         }
-        if (t === 'creature.tool_call' || t === 'creature.wake' || t === 'creature.boot') {
+        if (t === 'creature.tool_call' || t === 'creature.wake') {
           break; // creature is active, "running" is correct
         }
+        // creature.boot doesn't mean active — creature may have booted
+        // for dreaming then immediately slept. Keep scanning.
       }
     } catch {}
   }
