@@ -113,6 +113,7 @@ export class CreatureSupervisor {
     this.expectingExit = true;
     this.clearTimers();
     this.healthyAt = null;
+    const wasSleeping = this.status === 'sleeping';
     this.currentSHA = getCurrentSHA(this.dir);
 
     console.log(`[${this.name}] restarting container (environment preserved)`);
@@ -123,7 +124,7 @@ export class CreatureSupervisor {
     }
 
     this.creature = null;
-    this.status = 'starting';
+    this.status = wasSleeping ? 'sleeping' : 'starting';
     await this.spawnCreature();
   }
   // Recreate container preserving its writable layer (installed packages,
