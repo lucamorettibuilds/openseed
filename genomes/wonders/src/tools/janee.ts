@@ -145,8 +145,8 @@ export async function janeeStatus(): Promise<string> {
 
 export async function janeeListServices(): Promise<string> {
   try {
-    const result = await mcpCall('list_services');
-    return JSON.stringify(result, null, 2);
+    const result = await mcpCall('list_services') as any;
+    return result?.content?.[0]?.text || JSON.stringify(result, null, 2);
   } catch (err: any) {
     return `Janee unavailable: ${err.message}. Cannot list services — no authentication available without Janee.`;
   }

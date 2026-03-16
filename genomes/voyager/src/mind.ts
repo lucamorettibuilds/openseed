@@ -45,7 +45,7 @@ const CYCLE_COUNT_FILE = '.sys/cycle-count';
 
 const CYCLE_BUDGET = 40;
 const CYCLE_WARNING = 30;
-const TOOL_RESULT_CAP = 4000;
+const TOOL_RESULT_CAP = 50_000;
 const SPILL_DIR = "/tmp/tool-output";
 
 const provider = createAnthropic({
