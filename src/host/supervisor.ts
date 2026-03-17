@@ -31,6 +31,16 @@ const MAX_FAILURE_BACKOFF_MS = 30_000;
 const IS_DOCKER = process.env.OPENSEED_DOCKER === '1' || process.env.ITSALIVE_DOCKER === '1';
 const HOST_PATH = process.env.OPENSEED_HOST_PATH || process.env.ITSALIVE_HOST_PATH || OPENSEED_HOME;
 
+/** Rewrite an internal container path to the host path for Docker bind mounts. */
+function toHostPath(p: string): string {
+  if (!IS_DOCKER) return p;
+  const result = p.replace(OPENSEED_HOME, HOST_PATH);
+  if (result === p) {
+    console.warn(`[supervisor] WARNING: path substitution did not change "${p}" — bind mount may fail`);
+  }
+  return result;
+}
+
 export type CreatureStatus = 'stopped' | 'starting' | 'running' | 'sleeping' | 'error';
 
 export interface SupervisorConfig {
@@ -294,9 +304,7 @@ export class CreatureSupervisor {
 
     // When the orchestrator runs in Docker, creature bind mounts must use the
     // real host path (docker socket operates on the host, not inside our container).
-    const hostDir = IS_DOCKER
-      ? dir.replace(process.env.OPENSEED_HOME || process.env.ITSALIVE_HOME || '/data', HOST_PATH)
-      : dir;
+    const hostDir = toHostPath(dir);
 
     const orchestratorUrl = IS_DOCKER
       ? `http://openseed:${orchestratorPort}`
