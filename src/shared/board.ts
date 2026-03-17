@@ -2,6 +2,7 @@ import crypto from 'node:crypto';
 import fs from 'node:fs';
 import fsp from 'node:fs/promises';
 import path from 'node:path';
+
 import Database from 'better-sqlite3';
 
 export interface BoardPost {
@@ -133,6 +134,19 @@ function rowToPost(row: any): BoardPost {
     parent_id: row.parent_id,
     reply_count: row.reply_count ?? undefined,
   };
+}
+
+export function getThreadParticipants(postId: string): { authors: string[]; title: string } {
+  const d = getDb();
+  const post = d.prepare('SELECT author, title FROM posts WHERE id = ?').get(postId) as any;
+  if (!post) return { authors: [], title: '' };
+
+  const replyAuthors = d.prepare(
+    'SELECT DISTINCT author FROM posts WHERE parent_id = ?'
+  ).all(postId).map((r: any) => r.author);
+
+  const all = new Set<string>([post.author, ...replyAuthors]);
+  return { authors: [...all], title: post.title };
 }
 
 // --- Filesystem migration ---

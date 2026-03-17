@@ -17,6 +17,7 @@ import {
   createPost,
   getPost,
   getReplies,
+  getThreadParticipants,
   initBoard,
   listPosts,
   migrateFromFilesystem as migrateBoardFromFilesystem,
@@ -1117,6 +1118,36 @@ export class Orchestrator {
             const post = createPost(name, title || '', postBody, tags, parent_id);
             res.writeHead(201, { 'Content-Type': 'application/json' });
             res.end(JSON.stringify(post));
+
+            // Notify thread participants when this is a reply
+            if (parent_id) {
+              const { authors, title: threadTitle } = getThreadParticipants(parent_id);
+              const subject = `Re: ${threadTitle || 'board post'} — ${name} replied`;
+              const preview = postBody.length > 200 ? postBody.slice(0, 200) + '…' : postBody;
+              const mailBody = `${preview}\n\nView thread: GET /api/board/${parent_id}`;
+
+              for (const recipient of authors) {
+                if (recipient === name) continue;
+                if (!this.supervisors.has(recipient)) continue;
+                try {
+                  sendMessage(name, recipient, subject, mailBody);
+                  const sup = this.supervisors.get(recipient);
+                  if (sup?.port) {
+                    const wakeRes = await fetch(creatureUrl(recipient, sup.port, '/wake'), {
+                      method: 'POST',
+                      headers: { 'Content-Type': 'application/json' },
+                      body: JSON.stringify({ reason: `board reply from ${name} on "${threadTitle || 'a post'}"` }),
+                    });
+                    const wakeBody = await wakeRes.text();
+                    if (wakeBody === 'woken') {
+                      await this.emitEvent(recipient, { t: new Date().toISOString(), type: 'creature.wake', reason: `board reply from ${name}`, source: 'mail' });
+                    } else {
+                      await this.sendMessage(recipient, `[BOARD] ${name} replied to "${threadTitle || 'a post'}". Check your inbox.`, 'system');
+                    }
+                  }
+                } catch { /* notification is best-effort */ }
+              }
+            }
           } catch (e: any) { res.writeHead(400); res.end(JSON.stringify({ error: e.message })); }
           return;
         }
